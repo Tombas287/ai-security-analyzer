@@ -13,15 +13,10 @@ inputs:
 runs:
   using: "composite"
   steps:
-  #   - name: Setup Python
-  #     uses: actions/setup-python@v4
-  #     with:
-  #       python-version: 3.10
-  
-    - uses: actions/checkout@v4
-    
+    # REMOVED: actions/checkout@v4 (This was deleting the user's files)
+
     - name: Install dependencies
-      run: pip install -r requirements.txt
+      run: pip install -r ${{ github.action_path }}/requirements.txt
       shell: bash
 
     - name: Run Analyzer
@@ -30,6 +25,7 @@ runs:
       env:
         GOOGLE_API_KEY: ${{ inputs.google_api_key }}
         REPORT_PATH: ${{ inputs.report_path }}
+        GITHUB_WORKSPACE: ${{ github.workspace }} # Pass this to Python
 
     - name: Comment PR
       run: python ${{ github.action_path }}/comment_pr.py
