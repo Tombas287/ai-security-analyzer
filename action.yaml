@@ -29,7 +29,7 @@ runs:
       shell: bash
       env:
         GOOGLE_API_KEY: ${{ inputs.google_api_key }}
-        REPORT_PATH: ${{ github.workspace }}/${{ inputs.report_path }}
+        REPORT_PATH: ${{ inputs.report_path }}
 
     - name: Comment PR
       run: python ${{ github.action_path }}/comment_pr.py
