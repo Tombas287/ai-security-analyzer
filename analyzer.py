@@ -80,7 +80,7 @@ Output clean markdown.
 
     # Note: Ensure the model name is correct for your tier (e.g., gemini-1.5-flash)
     llm = ChatGoogleGenerativeAI(
-        model="gemini-1.5-flash", 
+        model="gemini-2.5-flash", 
         temperature=0,
         max_retries=3,
         google_api_key=os.getenv("GOOGLE_API_KEY")
