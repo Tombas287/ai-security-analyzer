@@ -1,0 +1,38 @@
+name: "AI Security Analyzer"
+description: "Analyze Trivy report using Gemini and comment on PR"
+
+inputs:
+  github_token:
+    required: true
+  google_api_key:
+    required: true
+  report_path:
+    required: false
+    default: "trivy-report.json"
+
+runs:
+  using: "composite"
+  steps:
+  #   - name: Setup Python
+  #     uses: actions/setup-python@v4
+  #     with:
+  #       python-version: 3.10
+
+    - name: Install dependencies
+      run: pip install -r requirements.txt
+      shell: bash
+
+    - name: Run Analyzer
+      run: python analyzer.py
+      shell: bash
+      env:
+        GOOGLE_API_KEY: ${{ inputs.google_api_key }}
+        REPORT_PATH: ${{ inputs.report_path }}
+
+    - name: Comment PR
+      run: python comment_pr.py
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.github_token }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+        GITHUB_REPOSITORY: ${{ github.repository }}
