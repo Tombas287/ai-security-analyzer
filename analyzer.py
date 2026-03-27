@@ -1,22 +1,42 @@
 import os
+import json
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import PromptTemplate
-# from parser import parse_trivy_report
-import json
 from dotenv import load_dotenv
 
 load_dotenv()
 
+# --- ROBUST PATH HANDLING ---
+# 1. Get the workspace root (where the report should be)
 workspace = os.getenv("GITHUB_WORKSPACE", os.getcwd())
+
+# 2. Get the report path from env, or default to the workspace root
 REPORT_FILE = os.getenv("REPORT_PATH", os.path.join(workspace, "trivy-report.json"))
 
 def parse_trivy_report(file_path):
-    with open(file_path, "r") as f:
-        data = json.load(f)
+    # Debugging info to see exactly where it's looking
+    print(f"🔍 Checking for report at: {file_path}")
+    
+    if not os.path.exists(file_path):
+        # List files in the current dir to help troubleshoot in the logs
+        print(f"❌ File not found. Files in {os.path.dirname(file_path) or '.'}: {os.listdir(os.path.dirname(file_path) or '.')}")
+        return []
+
+    try:
+        with open(file_path, "r") as f:
+            data = json.load(f)
+    except json.JSONDecodeError:
+        print("❌ Error: Report file is not valid JSON.")
+        return []
 
     vulnerabilities = []
 
-    for result in data.get("Results", []):
+    # Trivy JSON structure check
+    results = data.get("Results", [])
+    if not results:
+        return []
+
+    for result in results:
         for v in result.get("Vulnerabilities", []):
             vulnerabilities.append({
                 "package": v.get("PkgName"),
@@ -29,20 +49,22 @@ def parse_trivy_report(file_path):
     return vulnerabilities
 
 def analyze_vulnerabilities():
-
     vulns = parse_trivy_report(REPORT_FILE)
 
     if not vulns:
-        return "✅ No vulnerabilities found. Good job!"
+        return "✅ No vulnerabilities found or report missing. Good job!"
 
-    # Filter important ones
+    # Filter for high-impact issues
     filtered = [v for v in vulns if v["severity"] in ["HIGH", "CRITICAL"]]
+    
+    if not filtered:
+        return "✅ No HIGH or CRITICAL vulnerabilities found."
 
     template = """
-You are a senior security engineer.
+You are a senior security engineer. 
+Analyze the vulnerabilities below and provide a concise security report.
 
-Analyze the vulnerabilities below:
-
+Vulnerabilities:
 {vulns}
 
 For each vulnerability:
@@ -56,22 +78,22 @@ Output clean markdown.
 
     prompt = PromptTemplate.from_template(template)
 
+    # Note: Ensure the model name is correct for your tier (e.g., gemini-1.5-flash)
     llm = ChatGoogleGenerativeAI(
-        model="gemini-2.5-flash",
+        model="gemini-1.5-flash", 
         temperature=0,
         max_retries=3,
-        api_key=os.getenv("GOOGLE_API_KEY")
+        google_api_key=os.getenv("GOOGLE_API_KEY")
     )
 
     response = llm.invoke(prompt.format(vulns=filtered))
-
     return response.content
 
-
 if __name__ == "__main__":
-
     result = analyze_vulnerabilities()
     print(result)
 
-    with open("ai-output.txt", "w") as f:
+    # Save output to the workspace so it can be uploaded as an artifact later
+    output_path = os.path.join(workspace, "ai-output.txt")
+    with open(output_path, "w") as f:
         f.write(result)
