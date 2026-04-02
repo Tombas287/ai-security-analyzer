@@ -1,37 +1,166 @@
 import requests
 import os
+import json
+from datetime import datetime
 
-def post_pr_comment():
-
+def create_trivy_issue():
+    """
+    Creates a GitHub issue with Trivy scan results after vulnerability scanning completes.
+    Reads Trivy scan output and posts it as a GitHub issue.
+    """
+    
+    # Get environment variables
     github_token = os.getenv("GITHUB_TOKEN")
     repo = os.getenv("GITHUB_REPOSITORY")
     pr_number = os.getenv("PR_NUMBER")
-
-    if not all([github_token, repo, pr_number]):
-        print("❌ Missing environment variables")
-        return
-
-    with open("ai-output.txt", "r") as f:
-        comment_body = f.read()
-
-    url = f"https://api.github.com/repos/{repo}/issues/{pr_number}/comments"
-
+    
+    if not all([github_token, repo]):
+        print("❌ Missing environment variables: GITHUB_TOKEN and GITHUB_REPOSITORY required")
+        return False
+    
+    # Read Trivy scan results
+    trivy_report_path = os.getenv("TRIVY_REPORT_PATH", "trivy-report.json")
+    
+    if not os.path.exists(trivy_report_path):
+        print(f"❌ Trivy report not found at {trivy_report_path}")
+        return False
+    
+    try:
+        with open(trivy_report_path, "r") as f:
+            trivy_results = json.load(f)
+    except json.JSONDecodeError:
+        print(f"❌ Failed to parse Trivy report as JSON")
+        return False
+    
+    # Parse vulnerabilities
+    issue_title, issue_body = format_trivy_issue(trivy_results, pr_number)
+    
+    # Create GitHub issue
+    url = f"https://api.github.com/repos/{repo}/issues"
+    
     headers = {
         "Authorization": f"Bearer {github_token}",
         "Accept": "application/vnd.github+json"
     }
-
+    
     data = {
-        "body": comment_body
+        "title": issue_title,
+        "body": issue_body,
+        "labels": ["security", "trivy-scan"]
     }
-
+    
+    # Add PR reference if available
+    if pr_number:
+        data["body"] += f"\n\n**Related PR:** #{pr_number}"
+    
     response = requests.post(url, headers=headers, json=data)
-
+    
     if response.status_code == 201:
-        print("✅ Comment posted successfully")
+        issue_number = response.json().get("number")
+        print(f"✅ Issue created successfully: #{issue_number}")
+        return True
     else:
-        print("❌ Failed to post comment:", response.text)
+        print(f"❌ Failed to create issue: {response.text}")
+        return False
+
+
+def format_trivy_issue(trivy_results, pr_number=None):
+    """
+    Formats Trivy scan results into GitHub issue title and body.
+    
+    Args:
+        trivy_results: Parsed JSON from Trivy report
+        pr_number: Optional PR number for reference
+    
+    Returns:
+        Tuple of (title, body)
+    """
+    
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    
+    # Count vulnerabilities by severity
+    vulnerabilities = trivy_results.get("Results", [])
+    severity_count = {"CRITICAL": 0, "HIGH": 0, "MEDIUM": 0, "LOW": 0, "UNKNOWN": 0}
+    
+    for result in vulnerabilities:
+        for vuln in result.get("Vulnerabilities", []):
+            severity = vuln.get("Severity", "UNKNOWN")
+            if severity in severity_count:
+                severity_count[severity] += 1
+    
+    total_vulns = sum(severity_count.values())
+    
+    # Create issue title
+    critical_count = severity_count["CRITICAL"]
+    high_count = severity_count["HIGH"]
+    
+    if critical_count > 0:
+        title = f"🔴 Security Alert: {critical_count} CRITICAL vulnerabilities found"
+    elif high_count > 0:
+        title = f"🟠 Security Alert: {high_count} HIGH vulnerabilities found"
+    else:
+        title = f"🟡 Trivy Scan Report: {total_vulns} vulnerabilities detected"
+    
+    # Create detailed issue body
+    body = f"""## 🔒 Trivy Security Scan Report
+
+**Scan Date:** {timestamp}
+
+### 📊 Vulnerability Summary
+
+| Severity | Count |
+|----------|-------|
+| 🔴 CRITICAL | {severity_count['CRITICAL']} |
+| 🟠 HIGH | {severity_count['HIGH']} |
+| 🟡 MEDIUM | {severity_count['MEDIUM']} |
+| 🔵 LOW | {severity_count['LOW']} |
+| ⚪ UNKNOWN | {severity_count['UNKNOWN']} |
+| **TOTAL** | **{total_vulns}** |
+
+### 📋 Detailed Findings
+
+"""
+    
+    # Add detailed vulnerability information
+    for result in vulnerabilities:
+        target = result.get("Target", "Unknown")
+        vulns = result.get("Vulnerabilities", [])
+        
+        if vulns:
+            body += f"#### Target: `{target}`\n\n"
+            
+            for vuln in vulns:
+                vuln_id = vuln.get("VulnerabilityID", "N/A")
+                severity = vuln.get("Severity", "UNKNOWN")
+                title_text = vuln.get("Title", "No title")
+                pkg_name = vuln.get("PkgName", "N/A")
+                installed_version = vuln.get("InstalledVersion", "N/A")
+                fixed_version = vuln.get("FixedVersion", "N/A")
+                
+                body += f"**[{severity}] {vuln_id}**: {title_text}\n"
+                body += f"- **Package:** {pkg_name}\n"
+                body += f"- **Installed Version:** {installed_version}\n"
+                body += f"- **Fixed Version:** {fixed_version}\n\n"
+    
+    body += """### ✅ Recommended Actions
+
+1. **Review Critical/High Vulnerabilities:** Address any CRITICAL or HIGH severity issues immediately
+2. **Update Dependencies:** Update affected packages to versions containing security patches
+3. **Re-scan:** Run Trivy scan again after applying fixes to verify resolution
+4. **Security Policy:** Establish a security policy for handling vulnerabilities
+
+### 🔗 Resources
+
+- [Trivy Documentation](https://aquasecurity.github.io/trivy/)
+- [GitHub Security Advisory](https://github.com/advisories)
+
+---
+*This issue was automatically generated by Trivy security scanner*
+"""
+    
+    return title, body
 
 
 if __name__ == "__main__":
-    post_pr_comment()
+    success = create_trivy_issue()
+    exit(0 if success else 1)
