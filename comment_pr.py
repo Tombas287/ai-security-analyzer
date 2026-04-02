@@ -142,12 +142,7 @@ def format_trivy_issue(trivy_results, pr_number=None):
                 body += f"- **Installed Version:** {installed_version}\n"
                 body += f"- **Fixed Version:** {fixed_version}\n\n"
     
-    body += """### ✅ Recommended Actions
-
-1. **Review Critical/High Vulnerabilities:** Address any CRITICAL or HIGH severity issues immediately
-2. **Update Dependencies:** Update affected packages to versions containing security patches
-3. **Re-scan:** Run Trivy scan again after applying fixes to verify resolution
-4. **Security Policy:** Establish a security policy for handling vulnerabilities
+    body += """### 
 
 ### 🔗 Resources
 
